@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from google.cloud import storage # <-- RE-ENABLED
 from ai_stylist import generate_outfit_recommendations
 from vector_db import add_item_to_index, find_similar_item_ids
+from PIL import Image
+import io
 
 # ==============================================================================
 #  2. DATABASE SETUP
@@ -96,17 +98,15 @@ class SavedOutfitSchema(BaseModel):
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'gcs_key.json'
 GCS_BUCKET_NAME = 'outfit-ai-wardrobe-images-mahesh' # Your bucket name
 
-def upload_to_gcs(file: UploadFile) -> str:
-    """Uploads a file to the GCS bucket and returns its public URL."""
+def upload_to_gcs(file: UploadFile, image_bytes: bytes) -> str:
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
-    
-    # Create a unique filename to prevent overwrites
     unique_filename = f"{uuid.uuid4()}-{file.filename}"
     blob = bucket.blob(unique_filename)
-    
-    blob.upload_from_file(file.file, content_type=file.content_type)
-    
+
+    # Upload from the bytes we already read, instead of from the file object
+    blob.upload_from_string(image_bytes, content_type=file.content_type)
+
     return blob.public_url
 
 # ==============================================================================
@@ -121,7 +121,12 @@ def db_create_user(db: Session, user: UserCreate):
     return db_user
 
 def db_create_wardrobe_item(db: Session, user_id: int, title: str, description: str, category: str, color: str, image_file: UploadFile):
-    image_url = upload_to_gcs(image_file)
+    # Read image bytes to use for both embedding and uploading
+    image_bytes = image_file.file.read()
+
+    # Pass the bytes to the GCS upload function
+    image_url = upload_to_gcs(image_file, image_bytes)
+
     db_item = WardrobeItem(
         title=title, description=description, category=category, color=color,
         image_url=image_url, owner_id=user_id
@@ -130,9 +135,9 @@ def db_create_wardrobe_item(db: Session, user_id: int, title: str, description: 
     db.commit()
     db.refresh(db_item)
 
-    # NEW: Generate and add embedding to vector DB after saving
-    item_text_for_embedding = f"Title: {db_item.title}, Category: {db_item.category}, Color: {db_item.color}, Description: {db_item.description}"
-    add_item_to_index(item_id=db_item.id, item_text=item_text_for_embedding)
+    # NEW: Pass the image bytes along with the text for multimodal embedding
+    item_text_for_embedding = f"Title: {db_item.title}, Category: {db_item.category}, Color: {db_item.color}"
+    add_item_to_index(item_id=db_item.id, item_text=item_text_for_embedding, image_bytes=image_bytes)
 
     return db_item
 
@@ -186,19 +191,6 @@ def read_items_endpoint(user_id: int, db: Session = Depends(get_db)):
     # This function fetches all items for a specific user
     items = db.query(WardrobeItem).filter(WardrobeItem.owner_id == user_id).all()
     return items
-
-# This will build the index from existing DB items on startup
-def build_index_on_startup():
-    db = SessionLocal()
-    print("Building vector index from database...")
-    all_items = db.query(WardrobeItem).all()
-    for item in all_items:
-        item_text_for_embedding = f"Title: {item.title}, Category: {item.category}, Color: {item.color}, Description: {item.description}"
-        add_item_to_index(item_id=item.id, item_text=item_text_for_embedding)
-    db.close()
-    print("Vector index built successfully.")
-
-build_index_on_startup() # Call the function when the server starts
 
 @app.post("/users/{user_id}/recommend-outfit")
 def recommend_outfit_endpoint(user_id: int, request: dict, db: Session = Depends(get_db)):

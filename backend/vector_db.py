@@ -1,66 +1,69 @@
 import faiss
 import numpy as np
-import google.generativeai as genai
-
-API_KEY = "AIzaSyBbzWd10xSgXxbu5_WivBlJDTWxMDufXfo"  # Paste your key here
-genai.configure(api_key=API_KEY)
+from google.cloud import aiplatform
+from vertexai.vision_models import Image, MultiModalEmbeddingModel
+import os
 
 # --- Configuration ---
-# Use a dedicated model for embeddings
-embedding_model = genai.get_model('models/embedding-001')
-EMBEDDING_DIM = 768 # Dimensions for the embedding-001 model
+# Your Google Cloud Project ID
+PROJECT_ID = "omni-3688d" # The project ID from your screenshots
+LOCATION = "us-central1" # A common location for Vertex AI models
+
+# Initialize the Vertex AI client
+aiplatform.init(project=PROJECT_ID, location=LOCATION)
+
+# Load the multimodal embedding model from Vertex AI
+model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding")
+EMBEDDING_DIM = 1408 # The dimension for this specific model
 
 # --- In-Memory Vector Database ---
-# We create a simple FAISS index. This will live in memory and be rebuilt on startup.
-# For a production app, you'd use a persistent vector DB like Pinecone, Weaviate, or Cloud SQL's vector search.
 index = faiss.IndexFlatL2(EMBEDDING_DIM)
-# A simple dictionary to map the index position back to our database item ID
 index_to_item_id = {}
 
-def get_text_embedding(text: str) -> np.ndarray:
-    """Generates an embedding for a piece of text."""
-    embedding = genai.embed_content(model=embedding_model,
-                                    content=text,
-                                    task_type="retrieval_document") # Use "retrieval_query" for user queries
-    return np.array(embedding['embedding']).astype('float32')
 
-def add_item_to_index(item_id: int, item_text: str):
-    """Generates embedding for an item and adds it to the FAISS index."""
-    global index, index_to_item_id
+def get_multimodal_embedding(text: str, image_bytes: bytes) -> np.ndarray:
+    """Generates a multimodal embedding from text and an image using Vertex AI."""
     
-    embedding = get_text_embedding(item_text)
+    # Load the image data
+    image = Image(image_bytes=image_bytes)
     
-    # FAISS expects a 2D array, so we reshape our 1D embedding
-    embedding_2d = np.array([embedding])
+    # Get the embeddings
+    embeddings = model.get_embeddings(
+        contextual_text=text,
+        image=image,
+        dimension=EMBEDDING_DIM,
+    )
     
-    # Add the vector to the index
-    index.add(embedding_2d)
-    
-    # Store the mapping from the new index position to the item's actual ID
-    # index.ntotal gives the current number of vectors in the index
+    # Extract the image embedding vector
+    vector = embeddings.image_embedding
+    return np.array(vector).astype('float32')
+
+
+def add_item_to_index(item_id: int, item_text: str, image_bytes: bytes):
+    """Generates multimodal embedding and adds it to the index."""
+    embedding = get_multimodal_embedding(item_text, image_bytes)
+    index.add(np.array([embedding]))
     index_to_item_id[index.ntotal - 1] = item_id
-    print(f"Successfully added Item ID {item_id} to vector index.")
+    print(f"Successfully added Item ID {item_id} to Vertex AI multimodal vector index.")
+
 
 def find_similar_item_ids(query: str, k: int = 10) -> list[int]:
-    """Finds the 'k' most similar item IDs for a given text query."""
+    """Finds similar items for a text query."""
     if index.ntotal == 0:
         return []
 
-    # Ensure we don't ask for more neighbors than exist in the index
     search_k = min(k, index.ntotal)
-
-    query_embedding = genai.embed_content(
-        model=embedding_model,
-        content=query,
-        task_type="retrieval_query"
-    )['embedding']
     
-    query_embedding_2d = np.array([query_embedding]).astype('float32')
-
-    # Use our safe search_k value
+    # Get the embedding for the text query
+    embeddings = model.get_embeddings(
+        contextual_text=query,
+        dimension=EMBEDDING_DIM,
+    )
+    
+    query_embedding = np.array(embeddings.text_embedding).astype('float32')
+    
+    query_embedding_2d = np.array([query_embedding])
     distances, indices = index.search(query_embedding_2d, search_k)
-    
-    # Filter out any invalid '-1' results from FAISS before looking them up
     retrieved_ids = [index_to_item_id[i] for i in indices[0] if i != -1]
     
     return retrieved_ids
