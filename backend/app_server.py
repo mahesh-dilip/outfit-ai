@@ -44,6 +44,14 @@ class WardrobeItem(Base):
     owner_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("UserModel", back_populates="items")
 
+class SavedOutfit(Base):
+    __tablename__ = "saved_outfits"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    reason = Column(String)
+    item_ids = Column(String) # Storing IDs as a comma-separated string
+    owner_id = Column(Integer, ForeignKey("users.id"))
+
 Base.metadata.create_all(bind=engine)
 
 # ==============================================================================
@@ -71,6 +79,14 @@ class UserCreate(UserBase):
 class UserSchema(UserBase):
     id: int
     items: List[WardrobeItemSchema] = []
+    class Config:
+        from_attributes = True
+
+class SavedOutfitSchema(BaseModel):
+    id: int
+    name: str
+    reason: str
+    item_ids: str
     class Config:
         from_attributes = True
 
@@ -165,8 +181,6 @@ def create_item_endpoint(
         category=category, color=color, image_file=image
     )
 
-# ADD THIS ENTIRE FUNCTION
-
 @app.get("/users/{user_id}/items/", response_model=List[WardrobeItemSchema])
 def read_items_endpoint(user_id: int, db: Session = Depends(get_db)):
     # This function fetches all items for a specific user
@@ -213,3 +227,23 @@ def recommend_outfit_endpoint(user_id: int, request: dict, db: Session = Depends
     # --- END OF DEBUG CODE ---
 
     return recommendations
+
+@app.post("/users/{user_id}/save-outfit")
+def save_outfit_endpoint(user_id: int, outfit_data: dict, db: Session = Depends(get_db)):
+    new_saved_outfit = SavedOutfit(
+        name=outfit_data.get("name"),
+        reason=outfit_data.get("reason"),
+        item_ids=",".join(map(str, outfit_data.get("items", []))), # Convert list of ints to string
+        owner_id=user_id
+    )
+    db.add(new_saved_outfit)
+    db.commit()
+    db.refresh(new_saved_outfit)
+    return {"status": "success", "saved_outfit_id": new_saved_outfit.id}
+
+@app.get("/users/{user_id}/saved-outfits", response_model=List[SavedOutfitSchema])
+def get_saved_outfits_endpoint(user_id: int, db: Session = Depends(get_db)):
+    """Fetches all saved outfits for a specific user."""
+    saved_outfits = db.query(SavedOutfit).filter(SavedOutfit.owner_id == user_id).all()
+    return saved_outfits
+

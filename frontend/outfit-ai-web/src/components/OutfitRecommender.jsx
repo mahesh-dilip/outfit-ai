@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { motion } from 'framer-motion';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -36,6 +37,22 @@ const OutfitRecommender = ({ allItems }) => {
   // A helper to find item details by its ID
   const getItemById = (id) => allItems.find(item => item.id === id);
 
+  const handleSaveOutfit = async (outfit) => {
+    const userId = 1; // Hardcoded for now
+    const outfitData = {
+      name: outfit.outfit_name,
+      reason: outfit.outfit_reason,
+      items: outfit.outfit_items
+    };
+    try {
+      await axios.post(`${API_URL}/users/${userId}/save-outfit`, outfitData);
+      alert(`Outfit "${outfit.outfit_name}" saved!`);
+    } catch (err) {
+      alert("Failed to save outfit.");
+      console.error(err);
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
       <h2 className="text-3xl font-bold mb-6 text-center text-gray-800">Get Outfit Ideas</h2>
@@ -58,19 +75,61 @@ const OutfitRecommender = ({ allItems }) => {
 
       {error && <p className="text-center text-red-500 mb-4">{error}</p>}
       
-      {recommendations.length > 0 && (
+      {/* --- START OF NEW SKELETON UI --- */}
+      {loading && (
+        <div className="space-y-8">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="bg-white p-6 rounded-lg shadow-md">
+              <motion.div 
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+                className="h-8 w-1/2 bg-gray-200 rounded mb-4"
+              ></motion.div>
+              <motion.div 
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                className="h-4 w-3/4 bg-gray-200 rounded mb-6"
+              ></motion.div>
+              <div className="flex flex-wrap gap-4">
+                {[...Array(3)].map((_, j) => (
+                  <motion.div 
+                    key={j}
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 1.5, repeat: Infinity, delay: j * 0.2 }}
+                    className="w-32 h-32 bg-gray-200 rounded-lg"
+                  ></motion.div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* --- END OF NEW SKELETON UI --- */}
+
+      {/* The existing recommendation display */}
+      {!loading && recommendations.length > 0 && (
         <div className="space-y-8">
           {recommendations.map((outfit, index) => {
             console.log("--- Rendering Outfit:", outfit.outfit_name);
             return (
             <div key={index} className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-2xl font-bold mb-2">{outfit.outfit_name}</h3>
-              <p className="text-gray-600 mb-4 italic">{outfit.outfit_reason}</p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-2xl font-bold mb-2">{outfit.outfit_name}</h3>
+                  <p className="text-gray-600 mb-4 italic">{outfit.outfit_reason}</p>
+                </div>
+                <button 
+                  onClick={() => handleSaveOutfit(outfit)}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-3 rounded-full"
+                >
+                  Save
+                </button>
+              </div>
               <div className="flex flex-wrap gap-4">
                 {outfit.outfit_items.map(itemId => {
                   console.log(`Looking for item with ID: ${itemId} (Type: ${typeof itemId})`);
                   const item = getItemById(itemId);
-                  console.log("Found item:", item);
+                  console.log("Found item:", item); 
                   return item ? (
                     <div key={item.id} className="text-center">
                       <img 
