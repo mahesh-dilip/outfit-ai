@@ -24,7 +24,7 @@ const OutfitRecommender = ({ allItems }) => {
 
     try {
       const response = await axios.post(`${API_URL}/users/${userId}/recommend-outfit`, { query }, {timeout: 30000});
-      setRecommendations(response.data || []); // This uses the whole response directly
+      setRecommendations(response.data.outfits || []); // This uses the whole response directly
     } catch (err) {
       setError('Could not get recommendations. Please try again.');
       console.error(err);
@@ -60,13 +60,17 @@ const OutfitRecommender = ({ allItems }) => {
       
       {recommendations.length > 0 && (
         <div className="space-y-8">
-          {recommendations.map((outfit, index) => (
+          {recommendations.map((outfit, index) => {
+            console.log("--- Rendering Outfit:", outfit.outfit_name);
+            return (
             <div key={index} className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-2xl font-bold mb-2">{outfit.outfit_name}</h3>
               <p className="text-gray-600 mb-4 italic">{outfit.outfit_reason}</p>
               <div className="flex flex-wrap gap-4">
                 {outfit.outfit_items.map(itemId => {
+                  console.log(`Looking for item with ID: ${itemId} (Type: ${typeof itemId})`);
                   const item = getItemById(itemId);
+                  console.log("Found item:", item);
                   return item ? (
                     <div key={item.id} className="text-center">
                       <img 
@@ -81,7 +85,7 @@ const OutfitRecommender = ({ allItems }) => {
                 })}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>

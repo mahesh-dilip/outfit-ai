@@ -2,49 +2,54 @@ import google.generativeai as genai
 import os
 import json
 
-API_KEY = "AIzaSyBbzWd10xSgXxbu5_WivBlJDTWxMDufXfo" # Make sure your key is still here
+API_KEY = "AIzaSyBbzWd10xSgXxbu5_WivBlJDTWxMDufXfo" # Your key here
 genai.configure(api_key=API_KEY)
 
-# UPDATED: Configure the model to output JSON
 generation_config = {
-  "temperature": 0.8,
-  "top_p": 1,
-  "top_k": 1,
-  "max_output_tokens": 2048,
-  "response_mime_type": "application/json", # <-- This is the key change
+  "temperature": 0.8, "response_mime_type": "application/json",
 }
-
-model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    generation_config=generation_config
-)
+model = genai.GenerativeModel(model_name="gemini-1.5-flash", generation_config=generation_config)
 
 def generate_outfit_recommendations(query: str, items: list) -> dict:
-    """
-    Takes a user's query and their list of clothes and returns outfit ideas
-    as a structured JSON object.
-    """
-    wardrobe_list = ""
-    for item in items:
-        wardrobe_list += f"- ID {item.id}: {item.title} (Category: {item.category}, Color: {item.color})\n"
+    """Generates outfits from a pre-filtered list of relevant items."""
+    wardrobe_list = "".join([f"- ID {item.id}: {item.title} (Category: {item.category}, Color: {item.color})\n" for item in items])
 
-    # UPDATED: The prompt now demands a JSON structure
     prompt_parts = [
         "You are a helpful and creative personal fashion stylist.",
-        "A user needs an outfit recommendation based on their real wardrobe.",
-        "Your task is to analyze the user's request and their available items and create 2-3 distinct outfit combinations.",
-        "You MUST reply with only a valid JSON object.",
-        "The JSON object should be an array of outfits. Each outfit object must have three keys:",
-        "1. 'outfit_name': A short, creative name for the outfit (e.g., 'Casual Weekend').",
-        "2. 'outfit_items': An array of numbers, where each number is the ID of an item from the provided wardrobe list.",
-        "3. 'outfit_reason': A brief, one-sentence explanation for why the outfit works.",
-        "\n**User's Request:**",
-        f"\"{query}\"",
-        "\n**Available Wardrobe Items:**",
-        f"{wardrobe_list}",
+        "A user needs an outfit recommendation. You have already been provided with a pre-filtered list of the most relevant items from their wardrobe.",
+        "Your task is to create 2-3 distinct outfit combinations from ONLY these provided items.",
+        "You MUST reply with only a valid JSON object. The object should contain a single key 'outfits' which is an array of outfit objects.",
+        "Each outfit object must have three keys: 'outfit_name', 'outfit_items', and 'outfit_reason'.",
+        "1. 'outfit_name': A short, creative name for the outfit.",
+        "2. 'outfit_items': An array of INTEGERS. Each integer MUST be the ID of an item from the provided wardrobe list (e.g., [1, 5, 23]).",
+        "3. 'outfit_reason': A short explanation for why these items were chosen together.",
+        f"\n**User's Request:** \"{query}\"",
+        f"\n**Relevant Wardrobe Items:**\n{wardrobe_list}",
     ]
+    
+    try:
+        response = model.generate_content(prompt_parts)
+        
+        if not response.parts:
+            print("ERROR: AI response was blocked for safety reasons.")
+            block_reason = response.prompt_feedback.block_reason
+            print(f"Block Reason: {block_reason}")
+            return {
+                "outfits": [{
+                    "outfit_name": "Could not generate outfits",
+                    "outfit_items": [],
+                    "outfit_reason": f"The request was blocked by the AI for safety reasons: {block_reason}. Please try a different query."
+                }]
+            }
+            
+        return json.loads(response.text)
 
-    response = model.generate_content(prompt_parts)
-
-    # The response text will now be a JSON string, so we parse it into a Python dict
-    return json.loads(response.text)
+    except Exception as e:
+        print(f"ERROR: An exception occurred during AI generation: {e}")
+        return {
+            "outfits": [{
+                "outfit_name": "Error Generating Outfit",
+                "outfit_items": [],
+                "outfit_reason": "An unexpected error occurred while talking to the AI. Please check the backend logs."
+            }]
+        }

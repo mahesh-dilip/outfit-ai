@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
 from pydantic import BaseModel
 from google.cloud import storage # <-- RE-ENABLED
 from ai_stylist import generate_outfit_recommendations
+from vector_db import add_item_to_index, find_similar_item_ids
 
 # ==============================================================================
 #  2. DATABASE SETUP
@@ -104,9 +105,7 @@ def db_create_user(db: Session, user: UserCreate):
     return db_user
 
 def db_create_wardrobe_item(db: Session, user_id: int, title: str, description: str, category: str, color: str, image_file: UploadFile):
-    # This now calls the real upload function
-    image_url = upload_to_gcs(image_file) 
-    
+    image_url = upload_to_gcs(image_file)
     db_item = WardrobeItem(
         title=title, description=description, category=category, color=color,
         image_url=image_url, owner_id=user_id
@@ -114,6 +113,11 @@ def db_create_wardrobe_item(db: Session, user_id: int, title: str, description: 
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+
+    # NEW: Generate and add embedding to vector DB after saving
+    item_text_for_embedding = f"Title: {db_item.title}, Category: {db_item.category}, Color: {db_item.color}, Description: {db_item.description}"
+    add_item_to_index(item_id=db_item.id, item_text=item_text_for_embedding)
+
     return db_item
 
 # ==============================================================================
@@ -169,29 +173,43 @@ def read_items_endpoint(user_id: int, db: Session = Depends(get_db)):
     items = db.query(WardrobeItem).filter(WardrobeItem.owner_id == user_id).all()
     return items
 
+# This will build the index from existing DB items on startup
+def build_index_on_startup():
+    db = SessionLocal()
+    print("Building vector index from database...")
+    all_items = db.query(WardrobeItem).all()
+    for item in all_items:
+        item_text_for_embedding = f"Title: {item.title}, Category: {item.category}, Color: {item.color}, Description: {item.description}"
+        add_item_to_index(item_id=item.id, item_text=item_text_for_embedding)
+    db.close()
+    print("Vector index built successfully.")
+
+build_index_on_startup() # Call the function when the server starts
+
 @app.post("/users/{user_id}/recommend-outfit")
 def recommend_outfit_endpoint(user_id: int, request: dict, db: Session = Depends(get_db)):
     user_query = request.get("query")
     if not user_query:
         raise HTTPException(status_code=400, detail="Query is missing.")
-    
-    items = db.query(WardrobeItem).filter(WardrobeItem.owner_id == user_id).all()
-    if not items:
+
+    # 1. RETRIEVAL: Find relevant item IDs using vector search
+    relevant_ids = find_similar_item_ids(query=user_query, k=10) # Get top 10 relevant items
+
+    if not relevant_ids:
         return {"outfits": []}
 
-    # --- START OF DEBUG CODE ---
-    print("----- DEBUG: ITEMS SENT TO AI -----")
-    for item in items:
-        print(f"ID: {item.id}, Title: {item.title}")
-    print("---------------------------------")
-    # --- END OF DEBUG CODE ---
-    
-    recommendations = generate_outfit_recommendations(query=user_query, items=items)
+    # 2. AUGMENTATION: Get the full details for the retrieved items from the main database
+    relevant_items = db.query(WardrobeItem).filter(WardrobeItem.id.in_(relevant_ids)).all()
 
-    # --- START OF DEBUG CODE ---
-    print("----- DEBUG: AI RESPONSE -----")
-    print(recommendations)
-    print("----------------------------")
-    # --- END OF DEBUG CODE ---
+    print(f"--- Found {len(relevant_items)} relevant items for query: '{user_query}' ---")
+
+    # 3. GENERATION: Send only the relevant items to the AI
+    recommendations = generate_outfit_recommendations(query=user_query, items=relevant_items)
     
+    # --- START OF DEBUG CODE ---
+    print("----- DEBUG: FINAL RESPONSE TO FRONTEND -----")
+    print(recommendations)
+    print("-------------------------------------------")
+    # --- END OF DEBUG CODE ---
+
     return recommendations
