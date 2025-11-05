@@ -3,11 +3,17 @@ import numpy as np
 from google.cloud import aiplatform
 from vertexai.vision_models import Image, MultiModalEmbeddingModel
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- Configuration ---
-# Your Google Cloud Project ID
-PROJECT_ID = "omni-3688d" # The project ID from your screenshots
-LOCATION = "us-central1" # A common location for Vertex AI models
+PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+
+if not PROJECT_ID:
+    raise ValueError("GCP_PROJECT_ID environment variable is not set")
 
 # Initialize the Vertex AI client
 aiplatform.init(project=PROJECT_ID, location=LOCATION)
