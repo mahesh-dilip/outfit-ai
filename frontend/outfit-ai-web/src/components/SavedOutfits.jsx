@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../App';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -10,10 +11,11 @@ const SavedOutfits = ({ allItems }) => {
 
   useEffect(() => {
     const fetchSavedOutfits = async () => {
-      const userId = 1; // Hardcoded for now
       try {
         setLoading(true);
-        const response = await axios.get(`${API_URL}/users/${userId}/saved-outfits`);
+        const response = await axios.get(`${API_URL}/me/saved-outfits`, {
+          headers: getAuthHeaders()
+        });
         setSavedOutfits(response.data);
       } catch (err) {
         console.error("Failed to fetch saved outfits", err);

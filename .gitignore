@@ -44,6 +44,11 @@ env/
 *.db-shm
 *.db-wal
 
+# Vector Database
+vector_db_data/
+*.bin
+*.pkl
+
 # IDEs
 .vscode/
 .idea/

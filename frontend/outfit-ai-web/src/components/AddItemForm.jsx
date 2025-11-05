@@ -1,64 +1,105 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../App';
 
-// IMPORTANT: Use the same backend URL from your previous setup.
-// If your backend is running on your machine, this should work.
 const API_URL = 'http://127.0.0.1:8000';
 
 const AddItemForm = ({ onNewItem }) => {
-    // State hooks to store the form input values
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [color, setColor] = useState('');
-  const [imageFile, setImageFile] = useState(null); // State for the image file
-  const [message, setMessage] = useState(null); // To show success/error messages
+  const [imageFile, setImageFile] = useState(null);
+  const [message, setMessage] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
+
+  // AI Auto-Fill Feature - Analyzes image and suggests metadata
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    setImageFile(file);
+
+    if (!file) return;
+
+    // Show AI loading state
+    setAiLoading(true);
+    setMessage({ type: 'info', text: '🤖 AI analyzing image...' });
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      // Call backend AI analysis endpoint
+      const response = await axios.post(`${API_URL}/ai/analyze-image/`, formData, {
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      // Auto-fill form with AI suggestions
+      const aiData = response.data;
+      if (aiData.title) setTitle(aiData.title);
+      if (aiData.description) setDescription(aiData.description);
+      if (aiData.category) setCategory(aiData.category);
+      if (aiData.color) setColor(aiData.color);
+
+      setMessage({ type: 'success', text: '✨ AI auto-filled form! Feel free to edit.' });
+    } catch (error) {
+      console.error('AI analysis failed:', error);
+      setMessage({ type: 'warning', text: 'AI analysis unavailable. Please fill manually.' });
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); // Prevent the default form submission behavior
+    e.preventDefault();
 
     if (!title || !category || !color || !imageFile) {
-      setMessage({ type: 'error', text: 'Please fill in all fields and select an image.' });
+      setMessage({ type: 'error', text: 'Please fill in all required fields and select an image.' });
       return;
     }
 
-    // For now, we will hardcode the user_id to 1.
-    // In a real app, this would come from the logged-in user's state.
-    const userId = 1;
+    // Prevent double submissions
+    if (submitLoading) return;
 
-    // Use FormData to send both file and text data
+    setSubmitLoading(true);
+    setMessage(null);
+
     const formData = new FormData();
     formData.append('title', title);
     formData.append('description', description);
     formData.append('category', category);
     formData.append('color', color);
-    formData.append('image', imageFile); // 'image' must match the backend parameter name
+    formData.append('image', imageFile);
 
     try {
-      // The header is important for file uploads
       const config = {
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'multipart/form-data',
         },
       };
 
-      const response = await axios.post(`${API_URL}/users/${userId}/items/`, formData, config);
+      const response = await axios.post(`${API_URL}/me/items/`, formData, config);
 
-      // Show success message
       setMessage({ type: 'success', text: `Item "${response.data.title}" was added!` });
       onNewItem();
 
-      // Clear the form fields
+      // Clear form
       setTitle('');
       setDescription('');
       setCategory('');
       setColor('');
       setImageFile(null);
-      // Reset the file input visually
       document.getElementById('image-upload').value = null;
     } catch (error) {
       console.error('Error adding item:', error);
-      setMessage({ type: 'error', text: 'Could not add item. Check console for details.' });
+      const errorMsg = error.response?.data?.detail || 'Could not add item. Check console for details.';
+      setMessage({ type: 'error', text: errorMsg });
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -115,20 +156,29 @@ const AddItemForm = ({ onNewItem }) => {
         </div>
 
         <div className="mb-4">
-          <label htmlFor="image-upload" className="block text-gray-700 text-sm font-bold mb-2">Image*</label>
+          <label htmlFor="image-upload" className="block text-gray-700 text-sm font-bold mb-2">
+            Image* {aiLoading && <span className="text-blue-600 animate-pulse">(AI analyzing...)</span>}
+          </label>
           <input
             type="file"
             id="image-upload"
-            onChange={(e) => setImageFile(e.target.files[0])} // Get the first selected file
+            onChange={handleImageUpload}
+            accept="image/*"
             className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            🤖 AI will automatically fill the form based on your image!
+          </p>
         </div>
 
-        <button 
+        <button
           type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-150 ease-in-out"
+          disabled={submitLoading}
+          className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-150 ease-in-out ${
+            submitLoading ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         >
-          Add Item to Wardrobe
+          {submitLoading ? 'Adding...' : 'Add Item to Wardrobe'}
         </button>
       </form>
 
