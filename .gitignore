@@ -1,13 +1,15 @@
-# Environment variables
+# ---------- Secrets / env ----------
 .env
 .env.local
 .env.*.local
+backend/.env
 
-# Google Cloud credentials
+# Google Cloud service-account credentials — NEVER commit
 gcs_key.json
-*.json
+*-service-account*.json
+*credentials*.json
 
-# Python
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -32,39 +34,42 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual Environment
+# Virtual environments
 venv/
 ENV/
 env/
-.venv
+.venv/
 
-# Database
+# ---------- Databases ----------
 *.db
 *.db-journal
 *.db-shm
 *.db-wal
 
-# Vector Database
+# ---------- Vector DB artifacts ----------
 vector_db_data/
 *.bin
 *.pkl
 
-# IDEs
+# ---------- Node / frontend ----------
+node_modules/
+dist/
+.vite/
+*.local
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- Testing ----------
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---------- IDE / OS ----------
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# Logs
-*.log
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Node modules (for frontend)
-node_modules/
-
